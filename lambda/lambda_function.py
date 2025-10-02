@@ -1,3 +1,24 @@
+#!/usr/bin/env python3
+"""
+Tijori Finance Stock Data Scraper
+
+This script gets stock analysis data from the streak_tech_analysis API endpoint
+and picks the stocks for you to invest in based on the preset portifolio and risk
+parameters. It updates the picks to a google sheet as well as sends it via email.
+
+I have set this up as a lambda in AWS so that I get automated results every day.
+
+Usage:
+    python lambda_function.py
+
+Dependencies:
+    pip install aiohttp asyncio gspread_dataframe pandas requests
+
+Author: Merlin Mary John with AI Assistant
+Date: October 2, 2025
+"""
+
+
 import aiohttp
 import asyncio
 import gspread_dataframe as gd

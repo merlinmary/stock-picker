@@ -11,8 +11,8 @@ Usage:
 Dependencies:
     pip install requests beautifulsoup4 brotli lxml
 
-Author: AI Assistant
-Date: October 2024
+Author: Merlin Mary John with AI Assistant
+Date: October 1, 2025
 """
 
 import requests
