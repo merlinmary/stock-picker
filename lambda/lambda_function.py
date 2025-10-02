@@ -208,9 +208,9 @@ def send_email(df):
     print("Email sent successfully.")
 
 
-def export_to_sheets(worksheet_name, folder_id=None, df, mode='r'):
-    oauth = json.loads(os.getenv("gspread_oauth"))
-    gc = gs.service_account_from_dict(oauth)
+def export_to_sheets(df, worksheet_name, folder_id=None, mode='r'):
+    gspread_oauth = json.loads(os.getenv("gspread_oauth"))
+    gc = gs.service_account_from_dict(gspread_oauth)
     ws = gc.open(
         "Trading Picks History",
         folder_id=folder_id
@@ -269,8 +269,8 @@ def lambda_handler(event, context):
 
     worksheet = os.getenv("worksheet", "Picks")
     worksheet_folder = os.getenv("worksheet_folder")
-    export_to_sheets(worksheet, worksheet_folder, picks, 'a')
-    send_email(picks)
+    export_to_sheets(picks, worksheet, worksheet_folder, 'a')
+    # send_email(picks)
 
 
 if __name__ == "__main__":
