@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tijori Finance Stock Data Scraper
+Stock Picker from streak_tech_analysis
 
 This script gets stock analysis data from the streak_tech_analysis API endpoint
 and picks the stocks for you to invest in based on the preset portifolio and risk
