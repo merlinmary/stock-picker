@@ -194,6 +194,7 @@ def export_to_sheets(worksheet_name, df, mode='r'):
         "Trading Picks History",
         folder_id="1OjhG9RVObtpUOugz3pAc1eQUtRfe1rXX"
     ).worksheet(worksheet_name)
+
     max_rows = len(ws.get_all_values(major_dimension='rows'))
     if max_rows <= 1 and mode == 'a':
         mode = 'w'
@@ -236,8 +237,8 @@ def lambda_handler(event, context):
         ) for data in results if isinstance(data, dict)
     ]
 
-    df = pd.DataFrame(trade_decisions)
-    picks = df.loc[df['enter']==True]
+    picks = pd.DataFrame(trade_decisions)
+    picks = picks.loc[picks['enter']==True]
     picks = picks.sort_values(
         by=['weighted_score', 'buy_price'],
         ascending=[False, False]
