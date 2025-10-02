@@ -188,17 +188,17 @@ def send_email(df):
 
 
 def export_to_sheets(worksheet_name, df, mode='r'):
-    with open('/Users/merlinmaryjohn/projects/trading/lambda/sturdy-filament-423504-f7-4cb7f0c96c16.json') as json_data:
-        oauth = json.load(json_data)
-
+    oauth = json.loads(os.getenv("gspread_oauth"))
     gc = gs.service_account_from_dict(oauth)
     ws = gc.open(
         "Trading Picks History",
         folder_id="1OjhG9RVObtpUOugz3pAc1eQUtRfe1rXX"
-    ).worksheet("Picks")
+    ).worksheet(worksheet_name)
     max_rows = len(ws.get_all_values(major_dimension='rows'))
+    if max_rows <= 1 and mode == 'a':
+        mode = 'w'
 
-    if(mode=='w'):
+    if(mode == 'w'):
         ws.clear()
         gd.set_with_dataframe(
             worksheet=ws,
@@ -209,7 +209,7 @@ def export_to_sheets(worksheet_name, df, mode='r'):
         )
         return True
 
-    elif(mode=='a'):
+    elif(mode == 'a'):
         ws.add_rows(df.shape[0])
         gd.set_with_dataframe(
             worksheet=ws,
@@ -231,17 +231,22 @@ def lambda_handler(event, context):
 
     results = asyncio.run(get_data(symbols))
     trade_decisions = [
-        trading_script_with_position_sizing(data, risk_parameters, portfolio_capital) for data in results if isinstance(data, dict)
+        trading_script_with_position_sizing(
+            data, risk_parameters, portfolio_capital
+        ) for data in results if isinstance(data, dict)
     ]
 
     df = pd.DataFrame(trade_decisions)
-    entry = df.loc[df['enter']==True]
-    entry = entry.sort_values(by=['weighted_score', 'buy_price'], ascending=[False, False])
-    entry["date_time"] = execution_time
-    print(f"Total picks: {len(entry)}")
+    picks = df.loc[df['enter']==True]
+    picks = picks.sort_values(
+        by=['weighted_score', 'buy_price'],
+        ascending=[False, False]
+    )
+    picks["date_time"] = execution_time
+    print(f"Total picks: {len(picks)}")
 
-    export_to_sheets("SHEET_NAME", entry, 'a')
-    send_email(entry)
+    export_to_sheets("Picks", picks, 'a')
+    send_email(picks)
 
 
 if __name__ == "__main__":
