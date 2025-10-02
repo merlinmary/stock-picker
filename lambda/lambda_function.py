@@ -187,12 +187,12 @@ def send_email(df):
     print("Email sent successfully.")
 
 
-def export_to_sheets(worksheet_name, df, mode='r'):
+def export_to_sheets(worksheet_name, folder_id=None, df, mode='r'):
     oauth = json.loads(os.getenv("gspread_oauth"))
     gc = gs.service_account_from_dict(oauth)
     ws = gc.open(
         "Trading Picks History",
-        folder_id="1OjhG9RVObtpUOugz3pAc1eQUtRfe1rXX"
+        folder_id=folder_id
     ).worksheet(worksheet_name)
 
     max_rows = len(ws.get_all_values(major_dimension='rows'))
@@ -246,10 +246,11 @@ def lambda_handler(event, context):
     picks["date_time"] = execution_time
     print(f"Total picks: {len(picks)}")
 
-    export_to_sheets("Picks", picks, 'a')
+    worksheet = os.getenv("worksheet", "Picks")
+    worksheet_folder = os.getenv("worksheet_folder")
+    export_to_sheets(worksheet, worksheet_folder, picks, 'a')
     send_email(picks)
 
 
 if __name__ == "__main__":
     lambda_handler({}, {})
-
