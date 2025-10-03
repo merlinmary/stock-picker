@@ -134,8 +134,8 @@ def trading_script_with_position_sizing(api_data, risk_params, portfolio_value):
         decision["target_price"] = round(target_price, 2)
 
         decision["GTT"] = {
-            "stop_loss_trigger": stop_loss_price,
-            "target_trigger": target_price
+            "stop_loss_trigger": round(stop_loss_price, 2),
+            "target_trigger": round(target_price, 2)
         }
 
         # Position sizing: max shares to buy, respecting your risk
