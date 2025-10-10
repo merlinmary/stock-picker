@@ -143,6 +143,7 @@ def trading_script_with_position_sizing(api_data, risk_params, portfolio_value):
         risk_per_share = buy_price - stop_loss_price
         max_shares = (max_per_trade_risk / risk_per_share) if risk_per_share != 0 else 0
         decision["max_shares"] = int(max_shares)
+
     else:
         decision["enter"] = False
         decision["reason"] = "Weighted score below threshold, no entry."
@@ -208,8 +209,11 @@ def send_email(df):
     print("Email sent successfully.")
 
 
-def export_to_sheets(df, worksheet_name, folder_id=None, mode='r'):
+def export_to_sheets(df, mode='r'):
+    folder_id = os.getenv("worksheet_folder", None)
+    worksheet_name = os.getenv("worksheet", "Picks")
     gspread_oauth = json.loads(os.getenv("gspread_oauth"))
+
     gc = gs.service_account_from_dict(gspread_oauth)
     ws = gc.open(
         "Trading Picks History",
@@ -248,7 +252,9 @@ def export_to_sheets(df, worksheet_name, folder_id=None, mode='r'):
     
 
 def lambda_handler(event, context):
-    symbols = get_stocks_list()
+    symbols = event.get("symbols")
+    if not symbols:
+        symbols = get_stocks_list()
     print(f"Total stocks: {len(symbols)}")
 
     results = asyncio.run(get_data(symbols))
@@ -265,12 +271,15 @@ def lambda_handler(event, context):
         ascending=[False, False]
     )
     picks["date_time"] = execution_time
+    picks = picks.reindex([
+            'date_time', 'weighted_score', 'segment', 'symbol',
+            'buy_price', 'max_shares', 'stop_loss_price',
+            'target_price', 'GTT', 'enter', 'reason'
+        ], axis=1)
     print(f"Total picks: {len(picks)}")
 
-    worksheet = os.getenv("worksheet", "Picks")
-    worksheet_folder = os.getenv("worksheet_folder")
-    export_to_sheets(picks, worksheet, worksheet_folder, 'a')
-    # send_email(picks)
+    export_to_sheets(picks, 'a')
+    send_email(picks)
 
 
 if __name__ == "__main__":
