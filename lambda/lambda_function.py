@@ -24,6 +24,7 @@ import asyncio
 import gspread_dataframe as gd
 import gspread.auth as gs
 import json
+import math
 import os
 import pandas as pd
 import requests
@@ -40,7 +41,7 @@ portfolio_capital = 100000
 risk_parameters = {
     "max_drawdown_percent": 5,
     "per_trade_loss_percent": 1,
-    "daily_loss_percent": 2,
+    "daily_stop_loss_percent": 2,
     "monthly_loss_percent": 4,
     "trading_horizon_days": 14
 }
@@ -70,6 +71,151 @@ def get_stocks_list():
         pg += 1
 
     return symbols
+
+
+def analyze_stock_indicators(indicators: dict, risk_params, portfolio_value):
+    """
+    Analyze stock indicators and produce a weighted score and trading recommendation.
+
+    Parameters
+    ----------
+    indicators : dict
+        Dictionary containing technical indicator values (e.g., from API or dataframe row).
+        Expected keys: adx, macd, rsi, willR, stochastic_k, awesome_oscillator, momentum,
+                       ema5, ema10, ema20, ema50, ema100, ema200, vwma, close,
+                       win_signals, loss_signals, etc.
+
+    Returns
+    -------
+    dict : {
+        'symbol': str,
+        'score': float,
+        'recommendation': str,
+        'reason': str
+    }
+    """
+
+    # --- Normalization Helpers ---
+    def normalize(value, lower, upper):
+        """Normalize to 0–1 range."""
+        if value is None:
+            return 0
+        return max(0, min((value - lower) / (upper - lower), 1))
+
+    def safe_div(a, b):
+        return a / b if b else 0
+
+    # --- Derived & Normalized Values ---
+    adx = indicators.get("adx", 0)
+    macd = indicators.get("macd", 0)
+    rsi = indicators.get("rsi", 0)
+    willr = indicators.get("willR", -100)
+    stoch = indicators.get("stochastic_k", 0)
+    ao = indicators.get("awesome_oscillator", 0)
+    momentum = indicators.get("momentum", 0)
+    vwma = indicators.get("vwma", 0)
+    close = indicators.get("close", 0)
+    ema_values = [indicators.get(f"ema{i}", 0) for i in [5, 10, 20, 50, 100, 200]]
+    win_signals = indicators.get("win_signals", 0)
+    loss_signals = indicators.get("loss_signals", 0)
+    total_signals = win_signals + loss_signals
+
+    # --- Trend Scores ---
+    trend_strength = normalize(adx, 0, 50)  # >25 = trending
+    ema_alignment = 1 if all(ema_values[i] > ema_values[i+1] for i in range(len(ema_values)-1)) else 0
+    macd_trend = 1 if macd > 0 else 0
+
+    # --- Momentum Scores ---
+    rsi_score = normalize(rsi, 30, 70)  # 0 near oversold, 1 near overbought
+    stoch_score = normalize(stoch, 20, 80)
+    willr_score = 1 - normalize(-willr, 20, 80)  # invert since lower = oversold
+    momentum_score = 1 if momentum > 0 else 0
+
+    # --- Volume/Confirmation ---
+    ao_score = normalize(ao, -50, 50)
+    vwma_score = 1 if close >= vwma else 0
+
+    # --- Performance ---
+    win_rate = safe_div(win_signals, total_signals)
+    performance_score = normalize(win_rate, 0.3, 0.8)
+
+    # --- Weight Configuration ---
+    weights = {
+        # Trend Strength (40%)
+        "trend_strength": 0.15,
+        "ema_alignment": 0.10,
+        "macd_trend": 0.15,
+        # Momentum (35%)
+        "rsi_score": 0.10,
+        "stoch_score": 0.10,
+        "willr_score": 0.05,
+        "momentum_score": 0.10,
+        # Volume/Confirmation (15%)
+        "ao_score": 0.10,
+        "vwma_score": 0.05,
+        # Performance (10%)
+        "performance_score": 0.10,
+    }
+
+    # --- Composite Weighted Score ---
+    weighted_score = sum([
+        trend_strength * weights["trend_strength"],
+        ema_alignment * weights["ema_alignment"],
+        macd_trend * weights["macd_trend"],
+        rsi_score * weights["rsi_score"],
+        stoch_score * weights["stoch_score"],
+        willr_score * weights["willr_score"],
+        momentum_score * weights["momentum_score"],
+        ao_score * weights["ao_score"],
+        vwma_score * weights["vwma_score"],
+        performance_score * weights["performance_score"]
+    ])
+
+    # --- Decision Thresholds ---
+    if weighted_score >= 0.7:
+        rec = "BUY"
+        reason = "Strong trend and positive momentum"
+    elif weighted_score >= 0.45:
+        rec = "HOLD"
+        reason = "Moderate momentum, trend still intact"
+    else:
+        rec = "SELL"
+        reason = "Weakening trend or momentum signals"
+
+    decision = {
+        "symbol": indicators.get("symbol"),
+        "segment": indicators.get("segment"),
+        "params": json.dumps(indicators),
+        "weighted_score": round(weighted_score, 4)
+    }
+    threshold = 0.6
+
+    if weighted_score >= threshold:
+        decision["enter"] = True
+        buy_price = indicators.get("close", 0)
+        decision["buy_price"] = round(buy_price, 2)
+
+        stop_loss_price = buy_price * (1 - risk_params["daily_stop_loss_percent"] / 100)
+        target_price = buy_price * (1 + 4 / 100)  # Target 4% above buy_price
+        decision["stop_loss_price"] = round(stop_loss_price, 2)
+        decision["target_price"] = round(target_price, 2)
+
+        decision["GTT"] = {
+            "stop_loss_trigger": round(stop_loss_price, 2),
+            "target_trigger": round(target_price, 2)
+        }
+
+        # Position sizing: max shares to buy, respecting your risk
+        max_per_trade_risk = portfolio_value * risk_params["per_trade_loss_percent"] / 100
+        risk_per_share = buy_price - stop_loss_price
+        max_shares = (max_per_trade_risk / risk_per_share) if risk_per_share != 0 else 0
+        decision["max_shares"] = int(max_shares)
+
+    else:
+        decision["enter"] = False
+        decision["reason"] = reason
+
+    return decision
 
 
 def trading_script_with_position_sizing(api_data, risk_params, portfolio_value):
@@ -118,6 +264,7 @@ def trading_script_with_position_sizing(api_data, risk_params, portfolio_value):
     decision = {
         "symbol": api_data.get("symbol"),
         "segment": api_data.get("segment"),
+        "params": json.dumps(api_data),
         "weighted_score": round(weighted_score, 4)
     }
     threshold = 0.6
@@ -259,7 +406,7 @@ def lambda_handler(event, context):
 
     results = asyncio.run(get_data(symbols))
     trade_decisions = [
-        trading_script_with_position_sizing(
+        analyze_stock_indicators(
             data, risk_parameters, portfolio_capital
         ) for data in results if isinstance(data, dict)
     ]
@@ -274,12 +421,12 @@ def lambda_handler(event, context):
     picks = picks.reindex([
             'date_time', 'weighted_score', 'segment', 'symbol',
             'buy_price', 'max_shares', 'stop_loss_price',
-            'target_price', 'GTT', 'enter', 'reason'
+            'target_price', 'GTT', 'enter', 'reason', 'params'
         ], axis=1)
     print(f"Total picks: {len(picks)}")
 
     export_to_sheets(picks, 'a')
-    send_email(picks)
+    # send_email(picks)
 
 
 if __name__ == "__main__":
